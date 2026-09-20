@@ -1,0 +1,57 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>编织行指令审校</title>
+  <link rel="stylesheet" href="/static/style.css" />
+</head>
+<body>
+  <header class="topbar">
+    <h1>🧶 编织行指令审校</h1>
+    <div class="topbar-actions">
+      <button id="btn-example" type="button" class="btn btn-ghost">载入示例</button>
+      <button id="btn-import" type="button" class="btn btn-ghost">导入 JSON</button>
+      <button id="btn-export" type="button" class="btn btn-primary">导出 JSON</button>
+      <input type="file" id="file-import" accept="application/json,.json" hidden />
+    </div>
+  </header>
+
+  <main class="layout">
+    <section class="panel editor-panel">
+      <div class="panel-title">
+        <h2>方案编辑</h2>
+        <span id="sync-state" class="sync-state" aria-live="polite"></span>
+      </div>
+
+      <label class="start-row" for="start-stitches">
+        起始针数
+        <input id="start-stitches" type="number" min="0" step="1" value="20" />
+      </label>
+
+      <div id="rows-editor" class="rows-editor"></div>
+
+      <button id="btn-add-row" type="button" class="btn btn-block">＋ 添加一行</button>
+
+      <details class="syntax-help">
+        <summary>语法说明</summary>
+        <ul>
+          <li><code>kN</code>：消耗 <b>N</b> 针，产出 <b>N</b> 针（平针）</li>
+          <li><code>incN</code>：消耗 <b>1</b> 针，产出 <b>N</b> 针（加针）</li>
+          <li><code>decN</code>：消耗 <b>N</b> 针，产出 <b>1</b> 针（减针）</li>
+          <li><code>[指令序列]*M</code>：将方括号内序列整体重复 <b>M</b> 次，可嵌套，如 <code>[k2 inc1]*3 [k3 dec2]*2</code></li>
+          <li>每行的可用针数 = 上一行产出；针数不足时报“短缺”，未全部消耗报“未消耗”。</li>
+        </ul>
+      </details>
+    </section>
+
+    <section class="panel result-panel">
+      <div class="panel-title"><h2>逐行审校结果</h2></div>
+      <div id="summary" class="summary"></div>
+      <div id="results" class="results"></div>
+    </section>
+  </main>
+
+  <script src="/static/app.js"></script>
+</body>
+</html>

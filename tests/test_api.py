@@ -42,6 +42,32 @@ def test_analyze_validation_error():
     assert resp.status_code == 422
 
 
+def test_analyze_adaptive_repeat_payload():
+    resp = client.post("/api/analyze", json={
+        "start_stitches": 20,
+        "rows": ["[k2]*~4 k4"],
+    })
+    row = resp.json()["rows"][0]
+    assert row["status"] == "ok"
+    assert len(row["adaptive_blocks"]) == 1
+    blk = row["adaptive_blocks"][0]
+    assert blk["actual_repeats"] == 8
+    assert blk["target_remaining"] == 4
+    assert blk["star_pos"] == 4 and blk["start"] == 0 and blk["end"] == 7
+    assert row["expanded_count"] == 9
+
+
+def test_analyze_adaptive_indivisible_error():
+    resp = client.post("/api/analyze", json={
+        "start_stitches": 20,
+        "rows": ["[k2]*~5", "k1"],
+    })
+    rows = resp.json()["rows"]
+    assert rows[0]["status"] == "error"
+    assert rows[0]["error_pos"] == 4
+    assert rows[1]["status"] == "blocked"
+
+
 def test_index_served():
     resp = client.get("/")
     assert resp.status_code == 200

@@ -13,6 +13,7 @@ const EXAMPLE = {
     "[k3 dec2]*4",
     "k16",
     "[k3 inc2]*4",
+    "[k2]*~4 k4",
   ],
 };
 
@@ -65,7 +66,7 @@ function renderEditor(focusIndex = -1) {
     const input = document.createElement("input");
     input.type = "text";
     input.value = text;
-    input.placeholder = "如 k4 [k2 inc1]*3 dec2";
+    input.placeholder = "如 k4 [k2 inc1]*3 dec2 或 [k2]*~6 k6";
     input.setAttribute("aria-label", `第 ${i + 1} 行指令`);
     input.addEventListener("input", () => {
       state.rows[i] = input.value;
@@ -173,20 +174,41 @@ function escapeHtml(s) {
 
 function renderSource(row) {
   const src = row.source;
+  // 收集需要插入源文本的标记：短缺高亮（区间替换）、语法错误 ▲、
+  // 自适应块后面的“实际重复 M 次”徽标（纯插入）。
+  const marks = [];
   if (row.status === "shortage" && row.failing_start != null) {
     const [a, b] = [row.failing_start, row.failing_end];
-    return (
-      escapeHtml(src.slice(0, a)) +
-      `<span class="fail-hl" title="第一个无法执行的指令">${escapeHtml(src.slice(a, b))}</span>` +
-      escapeHtml(src.slice(b))
-    );
+    marks.push({
+      start: a, end: b,
+      html: `<span class="fail-hl" title="第一个无法执行的指令">${escapeHtml(src.slice(a, b))}</span>`,
+    });
   }
   if (row.status === "error" && row.error_pos != null) {
     const p = Math.max(0, Math.min(row.error_pos, src.length));
-    return escapeHtml(src.slice(0, p)) +
-      `<span class="caret" title="出错位置">▲</span>` + escapeHtml(src.slice(p));
+    marks.push({ start: p, end: p, html: `<span class="caret" title="出错位置">▲</span>` });
   }
-  return escapeHtml(src);
+  (row.adaptive_blocks || []).forEach((b) => {
+    marks.push({
+      start: b.end, end: b.end,
+      html: `<span class="adaptive-tag" title="自适应重复 *~${b.target_remaining}：`
+        + `执行后为后续指令保留 ${b.target_remaining} 针，每轮消耗 ${b.per_pass_consumed} 针、`
+        + `产出 ${b.per_pass_produced} 针">实际重复 ${b.actual_repeats} 次</span>`,
+    });
+  });
+  if (marks.length === 0) return escapeHtml(src);
+  // 按起点排序后顺序重建；标记区间互不重叠（短缺叶子在另一节点内，
+  // 自适应徽标挂在块末尾，▲ 在出错运算符处）。
+  marks.sort((a, b) => a.start - b.start || a.end - b.end);
+  let html = "";
+  let cursor = 0;
+  marks.forEach((m) => {
+    if (m.start > cursor) html += escapeHtml(src.slice(cursor, m.start));
+    html += m.html;
+    cursor = Math.max(cursor, m.end);
+  });
+  if (cursor < src.length) html += escapeHtml(src.slice(cursor));
+  return html;
 }
 
 function renderResults(rows) {

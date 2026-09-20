@@ -125,6 +125,144 @@ def test_expansion_limit():
         count_leaves(parse(f"[k1]*{MAX_EXPANDED_LEAVES + 1}"))
 
 
+# ---------------------------------------------------------------- 自适应重复
+def test_parse_adaptive_marker():
+    nodes = parse("[k2]*~4")
+    rep = nodes[0]
+    assert rep.type == "repeat" and rep.adaptive is True
+    assert rep.target_remaining == 4 and rep.n == 0  # 解析阶段不推导，次数初始为 0
+    assert rep.star_pos == 4
+    assert rep.start == 0 and rep.end == 7
+
+
+def test_parse_adaptive_zero_target():
+    assert parse("[k2]*~0")[0].target_remaining == 0
+
+
+def test_adaptive_repeats_derived_before_expansion():
+    # 20 针：(20-4)/2 = 8 轮，留 4 针给 k4 正好用完
+    rr = analyze_row(0, "[k2]*~4 k4", 20, False)
+    assert rr.status == "ok"
+    assert len(rr.adaptive_blocks) == 1
+    blk = rr.adaptive_blocks[0]
+    assert blk.actual_repeats == 8
+    assert blk.target_remaining == 4
+    assert blk.per_pass_consumed == 2
+    assert rr.consumed == 20 and rr.produced == 20 and rr.remaining == 20
+    assert rr.expanded_count == 9
+    assert rr.expanded_preview == ["k2"] * 8 + ["k4"]
+
+
+def test_adaptive_without_followup_is_unconsumed():
+    # 没有后续指令时，保留下来的 N 针计入未消耗
+    rr = analyze_row(0, "[k2]*~4", 20, False)
+    assert rr.status == "unconsumed"
+    assert rr.adaptive_blocks[0].actual_repeats == 8
+    assert rr.consumed == 16 and rr.unconsumed == 4
+    assert rr.remaining == 16
+
+
+def test_adaptive_zero_repeats_allowed():
+    # 当前剩余恰好等于目标保留针数 => 重复 0 次是合法解
+    rr = analyze_row(0, "k3 [k2]*~7 k7", 10, False)
+    assert rr.status == "ok"
+    assert rr.adaptive_blocks[0].actual_repeats == 0
+    assert rr.consumed == 10
+
+
+def test_adaptive_indivisible_is_error_at_operator():
+    rr = analyze_row(0, "[k2]*~5", 20, False)
+    assert rr.status == "error"
+    assert "整除" in rr.error
+    assert rr.error_pos == 4  # '*' 的列号
+    assert rr.adaptive_blocks == []
+
+
+def test_adaptive_target_too_large_is_error_at_operator():
+    rr = analyze_row(0, "k2 [k2]*~9", 10, False)
+    assert rr.status == "error"
+    assert "无法成立" in rr.error
+    assert rr.error_pos == 7  # 该块 '*' 的列号
+
+
+def test_adaptive_with_nested_fixed_block():
+    # [[k2]*2 inc1] 每轮消耗 5、产出 5；20 针留 5 => 3 轮
+    rr = analyze_row(0, "[[k2]*2 inc1]*~5 k5", 20, False)
+    assert rr.status == "ok"
+    assert rr.adaptive_blocks[0].actual_repeats == 3
+    assert rr.expanded_preview == ["k2", "k2", "inc1"] * 3 + ["k5"]
+    assert rr.consumed == 20
+
+
+def test_nested_adaptive_block_is_syntax_error():
+    rr = analyze_row(0, "[k2 [k1]*~2]*3", 20, False)
+    assert rr.status == "error"
+    assert "顶层" in rr.error
+    assert rr.error_pos == 9  # 内层 '~' 的全局列号
+
+
+def test_multiple_adaptive_blocks_resolved_in_sequence():
+    # 20 -> 第一个块 (20-10)/2=5 轮留10 -> 第二个 (10-5)/1=5 轮留5 -> k5 用完
+    rr = analyze_row(0, "[k2]*~10 [k1]*~5 k5", 20, False)
+    assert rr.status == "ok"
+    assert [b.actual_repeats for b in rr.adaptive_blocks] == [5, 5]
+
+
+def test_adaptive_block_production_passes_to_next_row():
+    # inc2 每轮耗 1 产 2：10 针留 4 => 6 轮，耗 6 产 12；下一行以 12 为可用
+    results = analyze_plan(10, ["[inc2]*~4", "k12"])
+    assert results[0].status == "unconsumed"
+    assert results[0].adaptive_blocks[0].actual_repeats == 6
+    assert results[0].remaining == 12
+    assert results[1].status == "ok" and results[1].available == 12
+
+
+def test_adaptive_failure_blocks_following_rows():
+    results = analyze_plan(10, ["[k2]*~3", "k1"])
+    assert results[0].status == "error"
+    assert results[1].status == "blocked"
+
+
+def test_adaptive_shortage_locates_following_leaf():
+    # [k2]*~10 => (20-10)/2=5 轮留10，dec11 需要 11 针 => 短缺 1
+    rr = analyze_row(0, "[k2]*~10 dec11", 20, False)
+    assert rr.status == "shortage"
+    assert rr.failing_instruction == "dec11"
+    assert rr.shortage == 1 and rr.consumed == 10
+    assert rr.adaptive_blocks[0].actual_repeats == 5
+
+
+def test_adaptive_second_block_failure_reports_first_block_result():
+    rr = analyze_row(0, "[k2]*~10 [k2]*~3", 20, False)
+    assert rr.status == "error" and "整除" in rr.error
+    assert rr.error_pos == 13  # 第二个块的 '*'
+    assert len(rr.adaptive_blocks) == 1
+    assert rr.adaptive_blocks[0].actual_repeats == 5
+
+
+def test_adaptive_expansion_limit_error_at_operator():
+    rr = analyze_row(0, "[k1]*~0", MAX_EXPANDED_LEAVES + 1, False)
+    assert rr.status == "error"
+    assert "上限" in rr.error
+    assert rr.error_pos == 4
+
+
+def test_adaptive_missing_number_fails():
+    with pytest.raises(ParseError) as ei:
+        parse("[k2]*~")
+    assert "非负整数" in ei.value.message
+    with pytest.raises(ParseError):
+        parse("[k2]*~x")
+
+
+def test_adaptive_to_dict_payload():
+    d = analyze_row(0, "[k2]*~4 k4", 20, False).to_dict()
+    blk = d["adaptive_blocks"][0]
+    assert blk["actual_repeats"] == 8
+    assert blk["start"] == 0 and blk["end"] == 7 and blk["star_pos"] == 4
+    assert blk["target_remaining"] == 4
+
+
 # ---------------------------------------------------------------- 逐行审校
 def test_plan_ok_chain():
     results = analyze_plan(10, ["k10", "inc5 k5", "dec2 k8"])

@@ -215,6 +215,25 @@ body {
 }
 .caret { color: var(--err); font-weight: 700; }
 
+.row-source .adaptive-hl {
+  background: #e3ecf8;
+  color: #274a7a;
+  border-radius: 3px;
+  padding: 0 2px;
+  box-shadow: 0 0 0 1px #6d93c2;
+}
+.row-source .adaptive-tag {
+  display: inline-block;
+  margin-left: 5px;
+  padding: 0 7px;
+  font-size: 12px;
+  font-family: "PingFang SC", "Microsoft YaHei", "Noto Sans CJK SC", system-ui, sans-serif;
+  color: #fff;
+  background: #4a73a8;
+  border-radius: 999px;
+  white-space: nowrap;
+}
+
 .metrics {
   display: flex;
   flex-wrap: wrap;

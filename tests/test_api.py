@@ -42,6 +42,30 @@ def test_analyze_validation_error():
     assert resp.status_code == 422
 
 
+def test_analyze_adaptive_payload():
+    resp = client.post("/api/analyze", json={
+        "start_stitches": 20,
+        "rows": ["[k2 inc1]*~5 k5"],
+    })
+    assert resp.status_code == 200
+    row = resp.json()["rows"][0]
+    assert row["status"] == "ok"
+    assert row["adaptive_blocks"] == [{
+        "start": 0, "end": 12, "op_pos": 9, "reserve": 5, "actual": 5,
+    }]
+
+
+def test_analyze_adaptive_error_payload():
+    resp = client.post("/api/analyze", json={
+        "start_stitches": 20,
+        "rows": ["[k2 inc1]*~4 k4"],
+    })
+    row = resp.json()["rows"][0]
+    assert row["status"] == "error"
+    assert row["error_pos"] == 9
+    assert "无法整除" in row["error"]
+
+
 def test_index_served():
     resp = client.get("/")
     assert resp.status_code == 200

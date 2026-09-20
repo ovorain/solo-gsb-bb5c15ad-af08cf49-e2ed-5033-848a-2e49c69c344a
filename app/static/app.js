@@ -13,6 +13,8 @@ const EXAMPLE = {
     "[k3 dec2]*4",
     "k16",
     "[k3 inc2]*4",
+    // 上一行产出 20 针：每轮耗 3 针，(20-2)/3 = 实际重复 6 次，末句 k2
+    "[k2 inc1]*~2 k2",
   ],
 };
 
@@ -65,7 +67,7 @@ function renderEditor(focusIndex = -1) {
     const input = document.createElement("input");
     input.type = "text";
     input.value = text;
-    input.placeholder = "如 k4 [k2 inc1]*3 dec2";
+    input.placeholder = "如 k4 [k2 inc1]*3 dec2，或 [k2]*~4 k4";
     input.setAttribute("aria-label", `第 ${i + 1} 行指令`);
     input.addEventListener("input", () => {
       state.rows[i] = input.value;
@@ -173,20 +175,57 @@ function escapeHtml(s) {
 
 function renderSource(row) {
   const src = row.source;
+  // 收集需要在源文本上标注的区间与点位：
+  //  - fail-hl：第一个无法执行的指令（短缺）
+  //  - adaptive-hl：自适应重复块，块结束后追加“实际重复 M 次”
+  //  - caret：语法/推导错误位置 ▲
+  const ranges = [];
   if (row.status === "shortage" && row.failing_start != null) {
-    const [a, b] = [row.failing_start, row.failing_end];
-    return (
-      escapeHtml(src.slice(0, a)) +
-      `<span class="fail-hl" title="第一个无法执行的指令">${escapeHtml(src.slice(a, b))}</span>` +
-      escapeHtml(src.slice(b))
-    );
+    ranges.push({
+      start: row.failing_start, end: row.failing_end, cls: "fail-hl",
+      title: "第一个无法执行的指令",
+    });
   }
+  (row.adaptive_blocks || []).forEach((b) => {
+    ranges.push({
+      start: b.start, end: b.end, cls: "adaptive-hl",
+      title: "自适应重复块",
+      badge: `实际重复 ${b.actual} 次`,
+    });
+  });
+
+  const cuts = new Set([0, src.length]);
+  ranges.forEach((r) => { cuts.add(r.start); cuts.add(r.end); });
+  const points = [];
   if (row.status === "error" && row.error_pos != null) {
     const p = Math.max(0, Math.min(row.error_pos, src.length));
-    return escapeHtml(src.slice(0, p)) +
-      `<span class="caret" title="出错位置">▲</span>` + escapeHtml(src.slice(p));
+    points.push(p);
+    cuts.add(p);
   }
-  return escapeHtml(src);
+  const positions = [...cuts].sort((a, b) => a - b);
+
+  const openAt = (pos) => ranges.filter((r) => r.start === pos);
+  const closeAt = (pos) => ranges.filter((r) => r.end === pos);
+
+  let html = "";
+  positions.forEach((pos, k) => {
+    // 关闭到期区间
+    closeAt(pos).forEach((r) => {
+      html += "</span>";
+      if (r.badge) html += `<span class="adaptive-tag">${escapeHtml(r.badge)}</span>`;
+    });
+    // 错误插入点
+    points.forEach((p) => {
+      if (p === pos) html += `<span class="caret" title="出错位置">▲</span>`;
+    });
+    // 打开起始区间
+    openAt(pos).forEach((r) => {
+      html += `<span class="${r.cls}"${r.title ? ` title="${r.title}"` : ""}>`;
+    });
+    const next = positions[k + 1];
+    if (next !== undefined) html += escapeHtml(src.slice(pos, next));
+  });
+  return html;
 }
 
 function renderResults(rows) {
